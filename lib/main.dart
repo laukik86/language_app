@@ -7,6 +7,7 @@ import 'package:language_learning_app/auth/auth_screen.dart';
 import 'dart:developer' show log;
 import 'firebase_options.dart';
 import 'package:language_learning_app/services/groq_api_service.dart';
+import 'package:language_learning_app/screens/profile_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -63,6 +64,7 @@ class MyApp extends StatelessWidget {
       home: const AuthWrapper(),
       routes: {
         '/language_select': (context) => const SelectLanguage(),
+        '/profile': (context) => const ProfileScreen(), // Add this line
       },
       builder: DevicePreview.appBuilder,
       useInheritedMediaQuery: true,

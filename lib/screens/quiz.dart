@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/quiz_question.dart';
 import '../services/groq_api_service.dart';
+import '../services/user_progress_service.dart';
+import '../models/quiz_question.dart';
 
 class QuizPage extends StatefulWidget {
   final String language;
@@ -38,6 +40,55 @@ class _QuizPageState extends State<QuizPage> {
     }
   }
 
+  final UserProgressService _progressService = UserProgressService();
+
+  Future<void> _trackQuizProgress() async {
+    try {
+      final updatedProgress = await _progressService.updateProgressAfterQuiz(
+        language: widget.language,
+        score: _score,
+        totalQuestions: _questions.length,
+      );
+
+      // Optional: You can show a level-up dialog if needed
+      if (updatedProgress.overallLevel > 1) {
+        _showLevelUpDialog(updatedProgress.overallLevel,
+            updatedProgress.languageProgress[widget.language]?.level ?? 1);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to update progress: $e')),
+      );
+    }
+  }
+
+  void _showLevelUpDialog(int overallLevel, int languageLevel) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Level Up!'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.emoji_events, color: Colors.amber, size: 60),
+            const SizedBox(height: 10),
+            const Text('Congratulations! You\'ve reached:'),
+            Text('Overall Level: $overallLevel',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text('${widget.language} Language Level: $languageLevel',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _loadQuestions() async {
     setState(() {
       _isLoading = true;
@@ -69,14 +120,15 @@ class _QuizPageState extends State<QuizPage> {
         : _questions[_currentQuestionIndex];
 
     final correctAnswer = currentQuestion.correctAnswer;
-///////////////////////////////////////////
     final explanation = currentQuestion.explanation;
+
     if (_questions.isEmpty || _currentQuestionIndex >= _questions.length) {
       setState(() {
         _quizCompleted = true;
       });
       return;
     }
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -91,7 +143,6 @@ class _QuizPageState extends State<QuizPage> {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              // Continue with the original logic
               _processAnswer(selectedOption);
             },
             child: const Text('Next'),
@@ -101,7 +152,6 @@ class _QuizPageState extends State<QuizPage> {
     );
   }
 
-// New method to handle the answer after showing explanation
   void _processAnswer(String selectedOption) {
     final currentQuestion = _reviewingIncorrect
         ? _incorrectQuestions[_currentQuestionIndex]
@@ -114,7 +164,6 @@ class _QuizPageState extends State<QuizPage> {
         if (!_reviewingIncorrect) {
           _score++;
         } else {
-          // Remove from incorrect list if answered correctly during review
           _incorrectQuestions.removeAt(_currentQuestionIndex);
           if (_incorrectQuestions.isEmpty) {
             _reviewingIncorrect = false;
@@ -123,31 +172,10 @@ class _QuizPageState extends State<QuizPage> {
         }
       });
     } else {
-      // Add to incorrect questions if not already in review mode
       if (!_reviewingIncorrect) {
         _incorrectQuestions.add(currentQuestion);
       }
     }
-
-    // if (selectedOption == correctAnswer) {
-    //   setState(() {
-    //     if (!_reviewingIncorrect) {
-    //       _score++;
-    //     } else {
-    //       // Remove from incorrect list if answered correctly during review
-    //       _incorrectQuestions.removeAt(_currentQuestionIndex);
-    //       if (_incorrectQuestions.isEmpty) {
-    //         _reviewingIncorrect = false;
-    //         _quizCompleted = true;
-    //       }
-    //     }
-    //   });
-    // } else {
-    //   // Add to incorrect questions if not already in review mode
-    //   if (!_reviewingIncorrect) {
-    //     _incorrectQuestions.add(currentQuestion);
-    //   }
-    // }
 
     final questionList = _reviewingIncorrect ? _incorrectQuestions : _questions;
 
@@ -157,26 +185,22 @@ class _QuizPageState extends State<QuizPage> {
       });
     } else {
       if (_reviewingIncorrect) {
-        // If we've gone through all incorrect questions
         if (_incorrectQuestions.isEmpty) {
           setState(() {
             _quizCompleted = true;
             _reviewingIncorrect = false;
           });
         } else {
-          // Reset index to review again
           setState(() {
             _currentQuestionIndex = 0;
           });
         }
       } else if (_incorrectQuestions.isNotEmpty) {
-        // Start reviewing incorrect questions
         setState(() {
           _reviewingIncorrect = true;
           _currentQuestionIndex = 0;
         });
       } else {
-        // No incorrect questions, complete quiz
         setState(() {
           _quizCompleted = true;
         });
@@ -225,6 +249,85 @@ class _QuizPageState extends State<QuizPage> {
     );
   }
 
+  Widget _buildQuizCompleted() {
+    // Track progress when quiz is completed
+    _trackQuizProgress();
+
+    final percentage = (_score / _questions.length) * 100;
+
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(
+            Icons.celebration,
+            size: 80,
+            color: Colors.amber,
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            "Quiz Completed!",
+            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            "Your Score: $_score/${_questions.length}",
+            style: const TextStyle(fontSize: 22),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            "${percentage.toStringAsFixed(0)}%",
+            style: TextStyle(
+              fontSize: 36,
+              fontWeight: FontWeight.bold,
+              color: percentage >= 70
+                  ? Colors.green.shade700
+                  : Colors.red.shade700,
+            ),
+          ),
+          const SizedBox(height: 30),
+          SizedBox(
+            width: 200,
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: _restartQuiz,
+              icon: const Icon(Icons.replay),
+              label: const Text("Try Again", style: TextStyle(fontSize: 18)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4285F4),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 15),
+          SizedBox(
+            width: 200,
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+              icon: const Icon(Icons.home),
+              label:
+                  const Text("Back to Course", style: TextStyle(fontSize: 18)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Rest of the code remains the same...
   Widget _buildQuizInProgress() {
     final currentQuestionList =
         _reviewingIncorrect ? _incorrectQuestions : _questions;
@@ -338,81 +441,6 @@ class _QuizPageState extends State<QuizPage> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildQuizCompleted() {
-    final percentage = (_score / _questions.length) * 100;
-
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.celebration,
-            size: 80,
-            color: Colors.amber,
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            "Quiz Completed!",
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            "Your Score: $_score/${_questions.length}",
-            style: const TextStyle(fontSize: 22),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            "${percentage.toStringAsFixed(0)}%",
-            style: TextStyle(
-              fontSize: 36,
-              fontWeight: FontWeight.bold,
-              color: percentage >= 70
-                  ? Colors.green.shade700
-                  : Colors.red.shade700,
-            ),
-          ),
-          const SizedBox(height: 30),
-          SizedBox(
-            width: 200,
-            height: 50,
-            child: ElevatedButton.icon(
-              onPressed: _restartQuiz,
-              icon: const Icon(Icons.replay),
-              label: const Text("Try Again", style: TextStyle(fontSize: 18)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF4285F4),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 15),
-          SizedBox(
-            width: 200,
-            height: 50,
-            child: ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              icon: const Icon(Icons.home),
-              label:
-                  const Text("Back to Course", style: TextStyle(fontSize: 18)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
